@@ -61,14 +61,30 @@ RequestLogger::$logResponse = true;
 RequestLogger::$apiKeyId = $apiKey->getId();
 ```
 
+### Labelling a request
+
+Two optional columns the trait already provides; fill them at any point while the
+request is being processed:
+
+```php
+// the id of the operation the request carried - the same value as audit_log.correlation_id,
+// so an audit event leads to the request including its payload in a single query
+RequestLogger::addValue('correlation_id', $transactionId);
+
+// what happened to the request - a category from a closed set of project constants,
+// so requests can be looked up by outcome, not only by URL and status code
+RequestLogger::addValue('identifier', 'duplicate_order');
+```
+
+The two are complementary: `correlation_id` points at one record elsewhere,
+`identifier` sorts requests into buckets.
+
 ### Custom columns
 
-A project can add its own columns to `request_log`; fill them at any point while
-the request is being processed:
+A project can add columns of its own to `request_log` the same way:
 
 ```php
 RequestLogger::addValue('device_id', $deviceId);
-RequestLogger::addValue('correlation_id', $correlationId);
 ```
 
 System columns (`created_at`, `method`, `url`, `ip`, `code`, `response_time`,
@@ -98,8 +114,9 @@ class RequestLogBody implements \ADT\RequestLogger\Entities\RequestLogBody
 ```
 
 **WARNING:** Doctrine reads `#[Index]` only from the entity and ignores it on
-traits — the project must declare the `createdAt` index itself, otherwise
-retention purging will scan the whole table.
+traits — the project must declare the indexes itself. `createdAt` is mandatory,
+otherwise retention purging will scan the whole table; add `correlationId` and
+`identifier` wherever they are searched.
 
 ## Tests
 

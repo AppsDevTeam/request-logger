@@ -27,4 +27,6 @@ interface RequestLog extends Entity
 	public function setResponseTime(?float $responseTime): static;
 	public function getCorrelationId(): ?string;
 	public function setCorrelationId(?string $correlationId): static;
+	public function getIdentifier(): ?string;
+	public function setIdentifier(?string $identifier): static;
 }

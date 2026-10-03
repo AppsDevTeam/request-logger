@@ -45,6 +45,16 @@ final class LogEntitiesTest extends TestCase
 		self::assertSame('export-42', $log->setCorrelationId('export-42')->getCorrelationId());
 	}
 
+	public function testRequestCanBeLabelledByOutcome(): void
+	{
+		// identifier is a category, not a pointer to a record elsewhere - that is correlationId.
+		$log = new TestRequestLog();
+
+		self::assertNull($log->getIdentifier());
+		self::assertSame('duplicate_order', $log->setIdentifier('duplicate_order')->getIdentifier());
+		self::assertNull($log->setIdentifier(null)->getIdentifier());
+	}
+
 	public function testResponseTimeIsStoredToTenthOfMillisecond(): void
 	{
 		// Scale 4; with scale 2 all requests under 10 ms would be indistinguishable.

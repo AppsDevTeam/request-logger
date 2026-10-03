@@ -58,6 +58,21 @@ trait RequestLogTrait
 	#[ORM\Column(nullable: true)]
 	protected ?string $correlationId = null;
 
+	/**
+	 * A label for grouping requests in an admin, e.g. 'duplicate_order' for a request
+	 * that was silently swallowed as a duplicate. Unlike correlationId, this is not
+	 * a pointer to a record elsewhere but a category - a closed set of project-defined
+	 * constants, so a request can be looked up by what happened to it, not only by
+	 * URL and status code.
+	 *
+	 * Filled via RequestLogger::addValue('identifier', ...).
+	 *
+	 * WARNING: the index must be declared by the consuming entity - Doctrine ignores
+	 * #[Index] attributes on traits.
+	 */
+	#[ORM\Column(nullable: true)]
+	protected ?string $identifier = null;
+
 	public function getCreatedAt(): DateTimeImmutable
 	{
 		return $this->createdAt;
@@ -154,6 +169,17 @@ trait RequestLogTrait
 	public function setCorrelationId(?string $correlationId): static
 	{
 		$this->correlationId = $correlationId;
+		return $this;
+	}
+
+	public function getIdentifier(): ?string
+	{
+		return $this->identifier;
+	}
+
+	public function setIdentifier(?string $identifier): static
+	{
+		$this->identifier = $identifier;
 		return $this;
 	}
 }
