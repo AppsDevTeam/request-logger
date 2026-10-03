@@ -1,43 +1,45 @@
 # ADT Request Logger
 
-Loguje HTTP požadavky (a volitelně odpovědi) Nette aplikace do tabulek
-`request_log` a `request_log_body`.
+Logs HTTP requests (and optionally responses) of a Nette application into the
+`request_log` and `request_log_body` tables.
 
 ```
 composer require adt/request-logger
 ```
 
-## Proč
+## Why
 
-Když se řeší incident nebo reklamace, potřebuješ vědět, co přesně klient
-poslal a co dostal zpátky — včetně hlaviček a těla. Logger to ukládá do dvou
-tabulek s různou retencí: hlavička požadavku (metoda, URL, kód, IP, doba
-odpovědi) žije dlouho, objemné tělo (hlavičky, parametry, payload, odpověď)
-se maže dřív.
+When investigating an incident or a customer complaint, you need to know exactly
+what the client sent and what it got back — including headers and body. The logger
+stores this in two tables with different retention: the request header (method,
+URL, status code, IP, response time) is kept for a long time, while the bulky body
+(headers, parameters, payload, response) is purged sooner.
 
-- Citlivá data (hesla, tokeny, čísla karet) odstraní
-  [adt/log-sanitizer](https://github.com/AppsDevTeam/log-sanitizer) ještě před zápisem.
-- Hlavička i tělo se zapisují **jednou transakcí** — souběžný odvoz/mazání
-  logů nikdy nezastihne osiřelou hlavičku bez těla.
-- Časy jsou vždy v UTC s milisekundami, kvůli korelaci s auditním logem
-  a jednoznačnosti při přechodu na zimní čas.
-- Zapisuje se **vlastním databázovým spojením** (mimo Doctrine EntityManager),
-  takže rollback aplikační transakce log nesmaže.
-- Selhání logování nikdy neshodí request — zaloguje se přes Tracy a jede se dál.
+- Sensitive data (passwords, tokens, card numbers) is stripped by
+  [adt/log-sanitizer](https://github.com/AppsDevTeam/log-sanitizer) before anything is written.
+- The header and the body are written in **a single transaction** — a concurrent
+  log move/purge never catches an orphaned header without its body.
+- Timestamps are always UTC with milliseconds, for correlation with the audit log
+  and to stay unambiguous across the DST switch.
+- Writes go through **a dedicated database connection** (outside the Doctrine
+  EntityManager), so rolling back the application's transaction does not discard the log.
+- A logging failure never breaks the request — it is logged via Tracy and the
+  request carries on.
 
-## Použití
+## Usage
 
-Zaregistruj službu (spojení dostane vlastní, proto bere parametry, ne Connection):
+Register the service (it opens its own connection, so it takes connection
+parameters, not a `Connection`):
 
 ```neon
 services:
 	- ADT\RequestLogger\RequestLogger(%database%)
 ```
 
-Projektový security user implementuje minimální rozhraní
-`ADT\RequestLogger\SecurityUser` (`isLoggedIn()`, `getId()`).
+Your project's security user implements the minimal
+`ADT\RequestLogger\SecurityUser` interface (`isLoggedIn()`, `getId()`).
 
-V base presenteru:
+In your base presenter:
 
 ```php
 protected function shutdown(Nette\Application\Response $response): void
@@ -46,35 +48,36 @@ protected function shutdown(Nette\Application\Response $response): void
 }
 ```
 
-Loguje se jen požadavek přihlášeného uživatele, nebo požadavek nesoucí API
-klíč (`RequestLogger::$apiKeyId`). Anonymní provoz se neloguje.
+Only requests of a logged-in user, or requests carrying an API key
+(`RequestLogger::$apiKeyId`), are logged. Anonymous traffic is not.
 
-### Volitelné přepínače
+### Optional switches
 
 ```php
-// zalogovat i tělo odpovědi (pozor na objem)
+// log the response body as well (mind the volume)
 RequestLogger::$logResponse = true;
 
-// požadavek přišel s API klíčem - loguje se i bez přihlášení
+// the request came with an API key - log it even without a logged-in user
 RequestLogger::$apiKeyId = $apiKey->getId();
 ```
 
-### Vlastní sloupce
+### Custom columns
 
-Projekt si může do `request_log` přidat vlastní sloupce; plní se kdykoliv
-během zpracování požadavku:
+A project can add its own columns to `request_log`; fill them at any point while
+the request is being processed:
 
 ```php
 RequestLogger::addValue('device_id', $deviceId);
 RequestLogger::addValue('correlation_id', $correlationId);
 ```
 
-Systémové sloupce (`created_at`, `method`, `url`, `ip`, `code`,
-`response_time`, `identity_id`, `api_key_id`) přepsat nejdou.
+System columns (`created_at`, `method`, `url`, `ip`, `code`, `response_time`,
+`identity_id`, `api_key_id`) cannot be overridden.
 
-## Entity
+## Entities
 
-Balíček dodává rozhraní a traity, entity si deklaruje projekt:
+The package provides interfaces and traits; the entities themselves are declared
+by the project:
 
 ```php
 #[ORM\Entity]
@@ -94,11 +97,11 @@ class RequestLogBody implements \ADT\RequestLogger\Entities\RequestLogBody
 }
 ```
 
-**POZOR:** Doctrine čte `#[Index]` jen z entity, na traitě ho ignoruje —
-index na `createdAt` si musí deklarovat projekt sám, jinak retenční mazání
-projede celou tabulku.
+**WARNING:** Doctrine reads `#[Index]` only from the entity and ignores it on
+traits — the project must declare the `createdAt` index itself, otherwise
+retention purging will scan the whole table.
 
-## Testy
+## Tests
 
 ```
 composer test
