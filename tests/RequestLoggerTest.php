@@ -18,10 +18,10 @@ use ReflectionProperty;
 use Tracy\Debugger;
 
 /**
- * RequestLogger - zapis pozadavku do tabulky request_log.
+ * RequestLogger - writing requests into the request_log table.
  *
- * Testuje se to, co nepotrebuje databazi: vlastni sloupce projektu a podminka, kdy se
- * pozadavek vubec neloguje.
+ * Covers what does not need a database: custom project columns and the condition
+ * under which a request is not logged at all.
  */
 final class RequestLoggerTest extends TestCase
 {
@@ -30,8 +30,8 @@ final class RequestLoggerTest extends TestCase
 
 	protected function setUp(): void
 	{
-		// Vsechny testy bezi v jednom procesu - staticky stav loggeru se musi vynulovat,
-		// jinak by se prenasel z predchoziho testu.
+		// All tests run in a single process - the logger's static state must be reset,
+		// otherwise it would leak over from the previous test.
 		self::resetRequestLogger();
 
 		$this->originalLogDirectory = Debugger::$logDirectory;
@@ -49,7 +49,7 @@ final class RequestLoggerTest extends TestCase
 		@rmdir($this->logDir);
 	}
 
-	public function testVlastniSloupceSePridavaji(): void
+	public function testCustomColumnsAreAdded(): void
 	{
 		self::assertSame([], self::extraLogData());
 
@@ -59,87 +59,88 @@ final class RequestLoggerTest extends TestCase
 		self::assertSame(['device_id' => 'abc', 'correlation_id' => 'export-42'], self::extraLogData());
 	}
 
-	public function testStejnySloupecSePrepise(): void
+	public function testSameColumnIsOverwritten(): void
 	{
-		RequestLogger::addValue('device_id', 'prvni');
-		RequestLogger::addValue('device_id', 'druhy');
+		RequestLogger::addValue('device_id', 'first');
+		RequestLogger::addValue('device_id', 'second');
 
-		self::assertSame(['device_id' => 'druhy'], self::extraLogData());
+		self::assertSame(['device_id' => 'second'], self::extraLogData());
 	}
 
-	public function testHodnotaSloupceMuzeBytCokoliv(): void
+	public function testColumnValueCanBeAnything(): void
 	{
-		RequestLogger::addValue('pocet', 42);
-		RequestLogger::addValue('priznak', true);
-		RequestLogger::addValue('nic', null);
+		RequestLogger::addValue('count', 42);
+		RequestLogger::addValue('flag', true);
+		RequestLogger::addValue('nothing', null);
 
-		self::assertSame(['pocet' => 42, 'priznak' => true, 'nic' => null], self::extraLogData());
+		self::assertSame(['count' => 42, 'flag' => true, 'nothing' => null], self::extraLogData());
 	}
 
-	public function testPrepinaceLogovaniJsouVeVychozimStavuVypnute(): void
+	public function testLoggingSwitchesAreOffByDefault(): void
 	{
 		self::assertFalse(RequestLogger::$logResponse);
 		self::assertNull(RequestLogger::$apiKeyId);
 	}
 
-	public function testAnonymniPozadavekSeNeloguje(): void
+	public function testAnonymousRequestIsNotLogged(): void
 	{
-		// Bez toho by kazdy pozadavek neprihlaseneho navstevnika zakladal radek v request_log.
-		// Databaze v testu neexistuje - kdyby se logovalo, spadne to a selhani se zapise
-		// do critical.log.
+		// Without this, every request of an anonymous visitor would create a row in request_log.
+		// There is no database in the test - if it tried to log, it would fail and the failure
+		// would be written to critical.log.
 		self::createLogger(isLoggedIn: false)->logRequest(new TestPresenter(), new TextResponse('ok'));
 
 		self::assertFileDoesNotExist($this->logDir . '/critical.log');
 	}
 
-	public function testPozadavekSApiKlicemSeLogujeIBezPrihlaseni(): void
+	public function testRequestWithApiKeyIsLoggedEvenWithoutLogin(): void
 	{
 		RequestLogger::$apiKeyId = 7;
 
-		// Logovani se spusti (nevratilo se hned) a spadne az na nesestavenem pozadavku.
-		// Selhani logovani nikdy nesmi shodit request - zaloguje se a jede se dal.
+		// Logging starts (does not return early) and fails only on the unassembled request.
+		// A logging failure must never break the request - it is logged and the request carries on.
 		self::createLogger(isLoggedIn: false)->logRequest(new TestPresenter(), new TextResponse('ok'));
 
-		self::assertStringContainsString('RequestLogger selhal', file_get_contents($this->logDir . '/critical.log'));
+		self::assertStringContainsString('RequestLogger failed', file_get_contents($this->logDir . '/critical.log'));
 	}
 
-	public function testHloubkaJsonJeOmezenaLimitemMysql(): void
+	public function testJsonDepthIsLimitedToMysqlLimit(): void
 	{
-		// MySQL pusti do sloupce json 100 urovni, PHP parsuje do 512 - telo mezi temito limity
-		// by proslo aplikaci a rozbilo se az pri insertu.
+		// MySQL accepts 100 levels in a json column, PHP parses up to 512 - a body between these
+		// limits would pass through the application and only break on insert.
 		self::assertSame(100, new ReflectionClassConstant(RequestLogger::class, 'MAX_JSON_COLUMN_DEPTH')->getValue());
 	}
 
-	public function testKdyzSelzeTeloNezustanePoPozadavkuAniHlavicka(): void
+	public function testWhenBodyFailsNoHeaderIsLeftBehind(): void
 	{
-		// Hlavicka a telo jsou dva inserty, ale jedna transakce. Bez ni je mezi nimi okamzik,
-		// kdy rodic uz v databazi je a telo jeste ne - a soubezny odvoz logu ho v tu chvili
-		// muze odvezt a smazat, takze telo spadne na cizim klici:
+		// Header and body are two inserts, but one transaction. Without it there is a moment
+		// when the parent is already in the database but the body is not - and a concurrent
+		// log move can move it away and delete it at that moment, so the body fails on the
+		// foreign key:
 		//   Cannot add or update a child row: a foreign key constraint fails
-		// Tady se totez nasimuluje chybejici tabulkou tela: kdyz zapis tela selze, nesmi po
-		// pozadavku zustat osirela hlavicka.
-		$soubor = tempnam(sys_get_temp_dir(), 'requestlog') . '.sqlite';
-		$dbParams = ['driver' => 'pdo_sqlite', 'path' => $soubor];
+		// Here the same is simulated by a missing body table: when writing the body fails,
+		// no orphaned header may be left behind.
+		$file = tempnam(sys_get_temp_dir(), 'requestlog') . '.sqlite';
+		$dbParams = ['driver' => 'pdo_sqlite', 'path' => $file];
 
 		try {
 			$connection = DriverManager::getConnection($dbParams);
 			$connection->executeStatement('CREATE TABLE request_log (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at TEXT)');
-			// request_log_body schvalne neexistuje
+			// request_log_body intentionally does not exist
 
 			$logger = new RequestLogger($dbParams, new TestSecurityUser(isLoggedIn: true), new SensitiveDataSanitizer());
-			$zapis = new ReflectionMethod(RequestLogger::class, 'writeLog');
+			$writeLog = new ReflectionMethod(RequestLogger::class, 'writeLog');
 
-			$selhalo = false;
+			$failed = false;
 			try {
-				$zapis->invoke($logger, $connection, ['created_at' => '2026-09-20 12:00:00'], ['headers' => null]);
+				$writeLog->invoke($logger, $connection, ['created_at' => '2026-09-20 12:00:00'], ['headers' => null]);
 			} catch (DbalException) {
-				$selhalo = true;
+				$failed = true;
 			}
 
-			self::assertTrue($selhalo, 'zapis tela mel selhat');
-			self::assertSame(0, (int) $connection->fetchOne('SELECT COUNT(*) FROM request_log'), 'hlavicka se musela vratit zpet');
+			self::assertTrue($failed, 'writing the body should have failed');
+			self::assertSame(0, (int) $connection->fetchOne('SELECT COUNT(*) FROM request_log'), 'the header must have been rolled back');
 		} finally {
-			@unlink($soubor);
+			@unlink($file);
 		}
 	}
 

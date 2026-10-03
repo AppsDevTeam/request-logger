@@ -14,15 +14,16 @@ trait RequestLogBodyTrait
 	protected RequestLog $requestLog;
 
 	/**
-	 * Vlastní čas, i když je to tentýž okamžik jako u rodiče - těla mají KRATŠÍ retenci
-	 * (typicky měsíc proti půl roku) a musí se mazat samostatně. Přes rodiče by to šlo
-	 * jen poddotazem nebo joinem, a to je na téhle tabulce ta nejobjemnější v databázi.
-	 * S vlastním sloupcem je to prostý DELETE po indexu.
+	 * Its own timestamp, even though it is the same instant as the parent's - bodies have
+	 * a SHORTER retention (typically a month versus half a year) and must be purged
+	 * separately. Going through the parent would need a subquery or a join, on what is
+	 * the largest table in the database. With its own column it is a plain DELETE by index.
 	 *
-	 * Zapisuje se vždy v UTC, stejně jako created_at rodiče - viz RequestLogger.
+	 * Always written in UTC, same as the parent's created_at - see RequestLogger.
 	 *
-	 * POZOR: Doctrine čte #[Index] jen z entity, na traitě ho IGNORUJE. Entita v projektu
-	 * proto musí index deklarovat sama, jinak retenční mazání projede celou tabulku:
+	 * WARNING: Doctrine reads #[Index] only from the entity and IGNORES it on a trait. The
+	 * project entity must therefore declare the index itself, otherwise retention purging
+	 * will scan the whole table:
 	 *
 	 *   #[ORM\Index(fields: ['createdAt'])]
 	 */

@@ -10,11 +10,11 @@ use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 
 /**
- * RequestLogTrait a RequestLogBodyTrait - provozni log pozadavku a jeho telo.
+ * RequestLogTrait and RequestLogBodyTrait - the operational request log and its body.
  */
 final class LogEntitiesTest extends TestCase
 {
-	public function testZaznamPozadavkuNeseMetoduUrlKodAIp(): void
+	public function testRequestLogCarriesMethodUrlCodeAndIp(): void
 	{
 		$log = new TestRequestLog();
 		$createdAt = new DateTimeImmutable('2026-03-01 12:00:00.123');
@@ -32,7 +32,7 @@ final class LogEntitiesTest extends TestCase
 		self::assertSame('2001:db8::1', $log->getIp());
 	}
 
-	public function testPuvodcePozadavkuJeBudIdentitaNeboApiKlic(): void
+	public function testRequestOriginIsEitherIdentityOrApiKey(): void
 	{
 		$log = new TestRequestLog();
 
@@ -45,9 +45,9 @@ final class LogEntitiesTest extends TestCase
 		self::assertSame('export-42', $log->setCorrelationId('export-42')->getCorrelationId());
 	}
 
-	public function testDobaOdpovediSeUkladaNaDesetinyMilisekundy(): void
+	public function testResponseTimeIsStoredToTenthOfMillisecond(): void
 	{
-		// Scale 4; se scale 2 by byly vsechny pozadavky pod 10 ms nerozlisitelne.
+		// Scale 4; with scale 2 all requests under 10 ms would be indistinguishable.
 		$log = new TestRequestLog();
 
 		self::assertNull($log->getResponseTime());
@@ -58,7 +58,7 @@ final class LogEntitiesTest extends TestCase
 		self::assertNull($log->setResponseTime(null)->getResponseTime());
 	}
 
-	public function testTeloPozadavkuJeCeleNepovinne(): void
+	public function testRequestBodyIsEntirelyOptional(): void
 	{
 		$body = new TestRequestLogBody();
 
@@ -71,7 +71,7 @@ final class LogEntitiesTest extends TestCase
 		self::assertNull($body->getResponseText());
 	}
 
-	public function testTeloPozadavkuSeNavazeNaZaznamPozadavku(): void
+	public function testRequestBodyIsLinkedToRequestLog(): void
 	{
 		$log = new TestRequestLog();
 		$body = new TestRequestLogBody();
@@ -81,7 +81,7 @@ final class LogEntitiesTest extends TestCase
 			->setParams(['page' => '2'])
 			->setPostData('a=1')
 			->setRawDataJson(['a' => 1])
-			->setRawDataText('{neni json')
+			->setRawDataText('{not json')
 			->setResponseJson(['ok' => true])
 			->setResponseText('OK');
 
@@ -90,7 +90,7 @@ final class LogEntitiesTest extends TestCase
 		self::assertSame(['page' => '2'], $body->getParams());
 		self::assertSame('a=1', $body->getPostData());
 		self::assertSame(['a' => 1], $body->getRawDataJson());
-		self::assertSame('{neni json', $body->getRawDataText());
+		self::assertSame('{not json', $body->getRawDataText());
 		self::assertSame(['ok' => true], $body->getResponseJson());
 		self::assertSame('OK', $body->getResponseText());
 	}

@@ -11,9 +11,9 @@ use Doctrine\ORM\Mapping\Column;
 trait RequestLogTrait
 {
 	/**
-	 * UTC, s milisekundami. Sub-sekundy jsou potreba k serazeni requestu
-	 * v ramci jedne sekundy - bez nich se pri dohledavani incidentu neda
-	 * rict, co probehlo driv. Plain DATETIME by je tise zahodil.
+	 * UTC, with milliseconds. Sub-seconds are needed to order requests
+	 * within a single second - without them, when tracing an incident, you
+	 * cannot tell what happened first. A plain DATETIME would silently drop them.
 	 */
 	#[ORM\Column(columnDefinition: 'DATETIME(3) NOT NULL')]
 	protected DateTimeImmutable $createdAt;
@@ -33,27 +33,27 @@ trait RequestLogTrait
 	#[ORM\Column]
 	protected int $code;
 
-	// 45 = maximum pro IPv6 (vcetne IPv4-mapped tvaru). 15 by staclo jen na
-	// IPv4 a prvni IPv6 klient by shodil insert.
+	// 45 = maximum for IPv6 (including the IPv4-mapped form). 15 would only fit
+	// IPv4 and the first IPv6 client would break the insert.
 	#[ORM\Column(length: 45)]
 	protected string $ip;
 
-	// scale 4 = rozliseni 0.1 ms; se scale 2 byly vsechny requesty pod 10 ms
-	// nerozlisitelne (0.00 vs 0.01)
+	// scale 4 = 0.1 ms resolution; with scale 2 all requests under 10 ms were
+	// indistinguishable (0.00 vs 0.01)
 	#[Column(type: 'decimal', precision: 12, scale: 4, nullable: true)]
 	protected ?string $responseTime = null;
 
 	/**
-	 * Identifikator operace, kterou request nesl - stejna hodnota, jakou ma
-	 * audit_log.correlation_id. Mustek mezi auditni a provozni vrstvou:
-	 * z auditni udalosti se jednim dotazem dohleda request vcetne payloadu.
+	 * Identifier of the operation the request carried - the same value as
+	 * audit_log.correlation_id. A bridge between the audit and operational layers:
+	 * from an audit event, a single query finds the request including its payload.
 	 *
-	 * Netypovany zamerne: request_log je genericky a nevi dopredu, jake typy
-	 * operaci ponese. Plni se pres RequestLogger::addValue('correlation_id', ...)
-	 * jen tam, kde request operaci nese; jinak zustava NULL.
+	 * Untyped on purpose: request_log is generic and does not know in advance what
+	 * kinds of operations it will carry. Filled via RequestLogger::addValue('correlation_id', ...)
+	 * only where the request carries an operation; otherwise it stays NULL.
 	 *
-	 * POZOR: index si musi deklarovat konzumujici entita - Doctrine atributy
-	 * #[Index] na traitech ignoruje.
+	 * WARNING: the index must be declared by the consuming entity - Doctrine ignores
+	 * #[Index] attributes on traits.
 	 */
 	#[ORM\Column(nullable: true)]
 	protected ?string $correlationId = null;

@@ -22,16 +22,17 @@ use Tracy\ILogger;
 final class RequestLogger
 {
 	/**
-	 * Nejhlubší zanoření, které MySQL pustí do sloupce typu `json`; hlubší dokument odmítne
-	 * chybou 3157 (The JSON document exceeds the maximum depth). PHP proti tomu parsuje do
-	 * 512 úrovní, takže tělo mezi těmito dvěma limity aplikací projde a rozbije se až tady.
+	 * The deepest nesting MySQL accepts in a `json` column; a deeper document is rejected
+	 * with error 3157 (The JSON document exceeds the maximum depth). PHP parses up to
+	 * 512 levels, so a body between these two limits passes through the application and
+	 * only breaks here.
 	 */
 	private const int MAX_JSON_COLUMN_DEPTH = 100;
 
 	public static bool $logResponse = false;
 	public static ?int $apiKeyId = null;
 
-	/** @var array<string, mixed> Vlastní projektové sloupce pro tabulku `request_log` */
+	/** @var array<string, mixed> Custom project columns for the `request_log` table */
 	private static array $extraLogData = [];
 
 	public function __construct(
@@ -42,13 +43,13 @@ final class RequestLogger
 	}
 
 	/**
-	 * Přidá vlastní sloupec do logu requestu (tabulka `request_log`).
+	 * Adds a custom column to the request log (the `request_log` table).
 	 *
-	 * Volej kdykoliv během zpracování requestu (typicky v presenteru), např.:
+	 * Call it at any point while the request is being processed (typically in a presenter), e.g.:
 	 *   RequestLogger::addValue('device_id', $deviceId);
 	 *
-	 * Systémové sloupce (created_at, method, url, ip, code, response_time,
-	 * identity_id, api_key_id) nelze přepsat – slouží pouze k PŘIDÁVÁNÍ.
+	 * System columns (created_at, method, url, ip, code, response_time,
+	 * identity_id, api_key_id) cannot be overridden – this is for ADDING columns only.
 	 */
 	public static function addValue(string $column, mixed $value): void
 	{
@@ -64,7 +65,7 @@ final class RequestLogger
 		try {
 			$this->doLogRequest($presenter, $response);
 		} catch (Throwable $e) {
-			Debugger::log('RequestLogger selhal: ' . $e->getMessage(), ILogger::CRITICAL);
+			Debugger::log('RequestLogger failed: ' . $e->getMessage(), ILogger::CRITICAL);
 		}
 	}
 
@@ -75,10 +76,10 @@ final class RequestLogger
 	 */
 	private function doLogRequest(Presenter $presenter, Response $response): void
 	{
-		// Hloubka se hlídá spolu s validitou: co se do `json` sloupce nevejde, uloží se jako
-		// text. Dřív takový požadavek shodil celý insert do `request_log_body`, takže se
-		// ztratilo tělo i odpověď - a stačilo ho poslat, aby v logu nebyly. Text je horší
-		// na dotazování, ale je to pořád celý obsah.
+		// Depth is checked together with validity: whatever does not fit into a `json` column
+		// is stored as text. Such a request used to break the whole insert into
+		// `request_log_body`, losing both the body and the response - sending one was enough
+		// to stay out of the log. Text is harder to query, but it is still the full content.
 		if (json_validate($presenter->getHttpRequest()->getRawBody(), self::MAX_JSON_COLUMN_DEPTH)) {
 			$raw_data_text = null;
 			$raw_data_json = Json::decode($presenter->getHttpRequest()->getRawBody(), forceArrays: true);
@@ -108,27 +109,27 @@ final class RequestLogger
 			$response_json = null;
 		}
 
-		// sanitizeHeaders() vyhodi nositele pristupu uplne (authorization,
-		// x-api-key, cookie...) a zbytek ocisti jako hodnoty
+		// sanitizeHeaders() drops access-bearing headers entirely (authorization,
+		// x-api-key, cookie...) and sanitizes the rest as values
 		$headers = $this->sanitizer->sanitizeHeaders($presenter->getHttpRequest()->getHeaders());
 
 		$connection = DriverManager::getConnection($this->dbParams);
 
-		// Systémové sloupce mají díky `+` vždy přednost – extra data (viz addValue())
-		// mohou pouze PŘIDÁVAT vlastní sloupce, ne přepsat defaultní logování.
-		// jeden okamzik pro rodice i telo: retencni mazani je porovnava mezi sebou
-		// (telo ma kratsi retenci), takze se nesmi lisit ani o milisekundu
+		// Thanks to `+`, system columns always take precedence – extra data (see addValue())
+		// can only ADD custom columns, never override the default logging.
+		// One instant for both parent and body: retention purging compares them with each
+		// other (the body has a shorter retention), so they must not differ even by a millisecond
 		$createdAt = new DateTimeImmutable('now', new DateTimeZone('UTC'))->format('Y-m-d H:i:s.u');
 
 		$this->writeLog(
 			$connection,
 			[
-				// UTC - stejne jako audit_log, kvuli korelaci a jednoznacnosti pri
-				// prechodu na zimni cas (2:30 nastane dvakrat)
+				// UTC - same as audit_log, for correlation and to stay unambiguous across
+				// the DST switch (2:30 happens twice)
 				'created_at' => $createdAt,
 				'method' => $presenter->getHttpRequest()->getMethod(),
 				'url' => $presenter->getHttpRequest()->getUrl()->getBaseUrl() . ltrim($presenter->getHttpRequest()->getUrl()->getPath(), '/'),
-				// delku IP ovlada klient (X-Forwarded-For) - nesmi rozbit insert
+				// the IP length is controlled by the client (X-Forwarded-For) - must not break the insert
 				'ip' => mb_substr((string) $presenter->getHttpRequest()->getRemoteAddress(), 0, 45),
 				'code' => $presenter->getHttpResponse()->getCode(),
 				'response_time' => (microtime(true) - $_SERVER['REQUEST_TIME_FLOAT']),
@@ -149,17 +150,18 @@ final class RequestLogger
 	}
 
 	/**
-	 * Zapíše hlavičku a tělo požadavku JEDNOU TRANSAKCÍ, i když jsou to dva inserty.
+	 * Writes the request header and body in ONE TRANSACTION, even though it is two inserts.
 	 *
-	 * Mezi zápisem hlavičky a těla je jinak okamžik, kdy rodič už v databázi je a tělo ještě
-	 * ne. Odvoz logů (např. fancyadmin:move-logs) běží souběžně a v tu chvíli mu nic nebrání
-	 * rodiče odvézt a ze zdroje smazat - tělo pak spadne na cizím klíči:
+	 * Otherwise there is a moment between writing the header and the body when the parent
+	 * is already in the database but the body is not. A log move (e.g. fancyadmin:move-logs)
+	 * runs concurrently and at that moment nothing stops it from moving the parent away and
+	 * deleting it from the source - the body then fails on the foreign key:
 	 *
 	 *   Cannot add or update a child row: a foreign key constraint fails
 	 *   (`request_log_body`, CONSTRAINT `FK_...` FOREIGN KEY (`request_log_id`))
 	 *
-	 * a z požadavku nezbude ani hlavička, ani tělo. V transakci rodič pro odvoz neexistuje,
-	 * dokud není hotové i tělo.
+	 * and nothing is left of the request, neither the header nor the body. Within
+	 * a transaction the parent does not exist for the move until the body is written too.
 	 *
 	 * @param array<string, mixed> $requestLog
 	 * @param array<string, mixed> $requestLogBody

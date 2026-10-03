@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace ADT\RequestLogger;
 
 /**
- * Jediné, co logger o uživateli potřebuje vědět. Projektový security user
- * (typicky obálka nad Nette\Security\User) tohle rozhraní jen implementuje,
- * žádná další vazba není potřeba.
+ * All the logger needs to know about the user. The project's security user
+ * (typically a wrapper around Nette\Security\User) just implements this
+ * interface, no other coupling is needed.
  */
 interface SecurityUser
 {
