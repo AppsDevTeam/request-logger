@@ -21,14 +21,19 @@
 		"tracy/tracy": "^2.10"
 	},
 	"require-dev": {
-		"nette/tester": "^2.5"
+		"phpunit/phpunit": "^13.0"
 	},
 	"autoload": {
 		"psr-4": {
 			"ADT\\RequestLogger\\": "src/"
 		}
 	},
+	"autoload-dev": {
+		"psr-4": {
+			"ADT\\RequestLogger\\Tests\\": "tests/"
+		}
+	},
 	"scripts": {
-		"test": "tester -C tests"
+		"test": "phpunit"
 	}
 }
