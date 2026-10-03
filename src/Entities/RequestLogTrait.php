@@ -11,11 +11,19 @@ use Doctrine\ORM\Mapping\Column;
 trait RequestLogTrait
 {
 	/**
-	 * UTC, with milliseconds. Sub-seconds are needed to order requests
-	 * within a single second - without them, when tracing an incident, you
-	 * cannot tell what happened first. A plain DATETIME would silently drop them.
+	 * UTC, with microseconds. Sub-seconds are needed to order requests within a single
+	 * second - without them, when tracing an incident, you cannot tell what happened
+	 * first. A plain DATETIME would silently drop them.
+	 *
+	 * Microseconds (6), not milliseconds (3): the logger writes them, PostgreSQL log
+	 * storage keeps them (adt/log-mover prints TIMESTAMP(6)), and DATETIME(6) costs one
+	 * byte more than DATETIME(3). One precision along the whole path, nothing rounded.
+	 *
+	 * columnDefinition because DBAL has no precision option for datetime. It is MySQL
+	 * syntax - the source of request logs is MySQL; for the log storage the schema is
+	 * printed from the field type, not from this definition.
 	 */
-	#[ORM\Column(columnDefinition: 'DATETIME(3) NOT NULL')]
+	#[ORM\Column(columnDefinition: 'DATETIME(6) NOT NULL')]
 	protected DateTimeImmutable $createdAt;
 
 	#[ORM\Column(type: 'integer', nullable: true)]

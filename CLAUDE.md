@@ -31,5 +31,5 @@ Tests need no database - they use SQLite (`pdo_sqlite`) where a connection is re
 - **Logging never throws.** `logRequest()` catches everything and logs it via Tracy as CRITICAL; a logging failure must not break the request.
 - **Own connection.** The logger opens its own DBAL connection from `$dbParams` (outside the Doctrine EntityManager) so an application rollback does not discard the log.
 - **JSON depth.** `MAX_JSON_COLUMN_DEPTH = 100` matches MySQL's `json` column limit; deeper bodies are stored in the `*_text` columns instead.
-- **UTC + one timestamp.** Header and body share the same UTC `created_at` with microseconds; retention purging compares them.
+- **UTC + one timestamp.** Header and body share the same UTC `created_at` with microseconds; retention purging compares them. Both columns are `DATETIME(6)` - a lower precision on either side rounds the shared instant differently.
 - **Indexes on traits are ignored by Doctrine.** `RequestLogTrait`/`RequestLogBodyTrait` cannot declare `#[ORM\Index]`; the consuming project entity must (see README).

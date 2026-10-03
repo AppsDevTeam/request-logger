@@ -104,4 +104,15 @@ final class LogEntitiesTest extends TestCase
 		self::assertSame(['ok' => true], $body->getResponseJson());
 		self::assertSame('OK', $body->getResponseText());
 	}
+
+	public function testHeaderAndBodyKeepTheSameMicrosecondPrecision(): void
+	{
+		// Regression: the body's created_at was a plain DATETIME, so MySQL rounded the instant
+		// the logger writes into both rows to whole seconds on the body only.
+		foreach ([TestRequestLog::class, TestRequestLogBody::class] as $class) {
+			$column = new \ReflectionProperty($class, 'createdAt')->getAttributes(\Doctrine\ORM\Mapping\Column::class)[0]->newInstance();
+
+			self::assertSame('DATETIME(6) NOT NULL', $column->columnDefinition, $class);
+		}
+	}
 }

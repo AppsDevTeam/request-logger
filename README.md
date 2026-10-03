@@ -19,7 +19,7 @@ URL, status code, IP, response time) is kept for a long time, while the bulky bo
   [adt/log-sanitizer](https://github.com/AppsDevTeam/log-sanitizer) before anything is written.
 - The header and the body are written in **a single transaction** — a concurrent
   log move/purge never catches an orphaned header without its body.
-- Timestamps are always UTC with milliseconds, for correlation with the audit log
+- Timestamps are always UTC with microseconds (`DATETIME(6)` in both tables), for correlation with the audit log
   and to stay unambiguous across the DST switch.
 - Writes go through **a dedicated database connection** (outside the Doctrine
   EntityManager), so rolling back the application's transaction does not discard the log.

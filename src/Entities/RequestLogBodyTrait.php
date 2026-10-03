@@ -19,7 +19,9 @@ trait RequestLogBodyTrait
 	 * separately. Going through the parent would need a subquery or a join, on what is
 	 * the largest table in the database. With its own column it is a plain DELETE by index.
 	 *
-	 * Always written in UTC, same as the parent's created_at - see RequestLogger.
+	 * Always written in UTC, same as the parent's created_at - see RequestLogger. Same
+	 * precision too (microseconds): the logger writes one instant into both, and a plain
+	 * DATETIME used to round the body's copy to whole seconds.
 	 *
 	 * WARNING: Doctrine reads #[Index] only from the entity and IGNORES it on a trait. The
 	 * project entity must therefore declare the index itself, otherwise retention purging
@@ -27,7 +29,7 @@ trait RequestLogBodyTrait
 	 *
 	 *   #[ORM\Index(fields: ['createdAt'])]
 	 */
-	#[Column]
+	#[Column(columnDefinition: 'DATETIME(6) NOT NULL')]
 	protected \DateTimeImmutable $createdAt;
 
 	#[Column(type: 'json', nullable: true)]
